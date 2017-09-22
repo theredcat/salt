@@ -232,21 +232,21 @@ def index_template_absent(name):
 
 def index_template_present(name, definition, check_definition=False):
     '''
-    Ensure that the named index templat eis present.
+    Ensure that the named index template is present.
 
     name
         Name of the index to add
     definition
         Required dict for creation parameters as per https://www.elastic.co/guide/en/elasticsearch/reference/current/indices-templates.html
     check_definition
-        If the template already exists and the definition is up to date
+        Check if the template already exists and the definition is up to date
 
     **Example:**
 
     .. code-block:: yaml
 
         mytestindex2_template:
-          elasticsearch_index_template.present:
+          elasticsearch.index_template_present:
             - definition:
                 template: logstash-*
                 order: 1
@@ -476,6 +476,111 @@ def search_template_present(name, definition):
                     ret['comment'] = 'Cannot create search template {0}, {1}'.format(name, output)
         else:
             ret['comment'] = 'Search template {0} is already present'.format(name)
+    except Exception as e:
+        ret['result'] = False
+        ret['comment'] = str(e)
+
+    return ret
+
+
+def repository_absent(name):
+    '''
+    Ensure that the named repository snapshot is absent.
+
+    name
+        Name of the repository to remove
+    '''
+
+    ret = {'name': name, 'changes': {}, 'result': True, 'comment': ''}
+
+    try:
+        repository_snapshot = __salt__['elasticsearch.repository_get'](name=name)
+        if repository_snapshot and name in repository_snapshot:
+            if __opts__['test']:
+                ret['comment'] = 'Index template {0} will be removed'.format(name)
+                ret['changes']['old'] = repository_snapshot[name]
+                ret['result'] = None
+            else:
+                ret['result'] = __salt__['elasticsearch.repository_delete'](name=name)
+                if ret['result']:
+                    ret['comment'] = 'Successfully removed index template {0}'.format(name)
+                    ret['changes']['old'] = repository_snapshot[name]
+                else:
+                    ret['comment'] = 'Failed to remove index template {0} for unknown reasons'.format(name)
+        else:
+            ret['comment'] = 'Index template {0} is already absent'.format(name)
+    except Exception as e:
+        ret['result'] = False
+        ret['comment'] = str(e)
+
+    return ret
+
+
+def repository_present(name, type, settings, check_settings=False):
+    '''
+    Ensure that the named repository snapshot is present.
+
+    name
+        Name of the repository to add
+    type
+        Type of the repository : "fs", "url" or one from https://www.elastic.co/guide/en/elasticsearch/plugins/current/repository.html
+    settings
+        Required dict for repository settings as per https://www.elastic.co/guide/en/elasticsearch/reference/current/modules-snapshots.html
+    check_definition
+        Check if the repository already exists and that settings are up to date
+
+    **Example:**
+
+    .. code-block:: yaml
+
+        mysnapshot_for_backups:
+          elasticsearch.repository_present:
+            - type: fs
+            - definition:
+                location: /nfs/backups
+                compress: True
+            - check_settings: True
+    '''
+
+    ret = {'name': name, 'changes': {}, 'result': True, 'comment': ''}
+    definition = { 'type': type, 'settings': settings }
+
+    try:
+        repository_snapshot = __salt__['elasticsearch.repository_get'](name=name)
+        if not repository_snapshot or name not in repository_snapshot:
+            if __opts__['test']:
+                ret['comment'] = 'Repository snapshot {0} will be created'.format(name)
+                ret['changes']['old'] = None
+                ret['changes']['new'] = definition
+                ret['result'] = None
+            else:
+                ret['result'] = __salt__['elasticsearch.repository_create'](name=name, body=definition)
+                if ret['result']:
+                    ret['comment'] = 'Successfully created repository snapshot {0}'.format(name)
+                    ret['changes']['old'] = None
+                    ret['changes']['new'] = definition
+                else:
+                    ret['comment'] = 'Failed to create repository snapshot {0} for unknown reasons'.format(name)
+        elif check_settings:
+            diff = __utils__['dictdiffer.deep_diff'](repository_snapshot, definition)
+            if len(diff) != 0:
+                if __opts__['test']:
+                    ret['comment'] = 'Index template {0} exist but need to be updated'.format(name)
+                    ret['changes'] = diff
+                    ret['result'] = None
+                else:
+                    output = __salt__['elasticsearch.repository_create'](name=name, body=definition)
+                    if output:
+                        ret['comment'] = 'Successfully updated repository snapshot {0}'.format(name)
+                        ret['changes'] = diff
+                    else:
+                        ret['result'] = False
+                        ret['comment'] = 'Cannot update repository snapshot {0}, {1}'.format(name, output)
+            else:
+                ret['comment'] = 'Snapshot repository {0} is already present and up to date'.format(name)
+        else:
+            ret['comment'] = 'Snapshot repository {0} is already present'.format(name)
+
     except Exception as e:
         ret['result'] = False
         ret['comment'] = str(e)
